@@ -1,4 +1,5 @@
 import os
+from tqdm import tqdm
 from argparse import ArgumentParser
 # import 3DMM Extractor
 from src.face3d.extract_kp_videos import KeypointExtractor
@@ -17,9 +18,14 @@ import safetensors.torch
 from src.utils.init_path import init_path
 from src.utils.safetensor_helper import load_x_from_safetensor
 from yacs.config import CfgNode as CN
-# import poseVAE
+# importing poseVAE libraries
 from src.audio2pose_models.audio2pose import Audio2Pose
-# import faceRenderer
+# importing faceRenderer libraries
+
+# data_loader libraries
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader, random_split
+from torchvision.transforms import Compose, ToTensor, Normalize
 
 device = 'cuda'
 train = False
@@ -42,25 +48,29 @@ def main(args):
     sadtalker_path = init_path(checkpoint_dir, os.path.join(current_root_path, 'src/config'), size, old_version, preprocess)
 
     # Load All configs
-    fcfg_pose = open(sadtalker_path['audio2pose_yaml_path'])
-    cfg_pose = CN.load_cfg(fcfg_pose)
-    cfg_pose.freeze()
-    fcfg_exp = open(sadtalker_path['audio2exp_yaml_path'])
-    cfg_exp = CN.load_cfg(fcfg_exp)
-    cfg_exp.freeze()
-    netG = SimpleWrapperV2()
-    netG = netG.to(device)
-    for param in netG.parameters():
-        netG.requires_grad = False
-    netG.eval()
-    try:
-        if sadtalker_path['use_safetensor']:
-            checkpoints = safetensors.torch.load_file(sadtalker_path['checkpoint'])
-            netG.load_state_dict(load_x_from_safetensor(checkpoints, 'audio2exp'))
-        else:
-            load_cpk(sadtalker_path['audio2exp_checkpoint'], model=netG, device=device)
-    except:
-        raise Exception("Failed in loading audio2exp_checkpoint")
+    if True:
+        fcfg_pose = open(sadtalker_path['audio2pose_yaml_path'])
+        cfg_pose = CN.load_cfg(fcfg_pose)
+        cfg_pose.freeze()
+        fcfg_exp = open(sadtalker_path['audio2exp_yaml_path'])
+        cfg_exp = CN.load_cfg(fcfg_exp)
+        cfg_exp.freeze()
+        netG = SimpleWrapperV2()
+        netG = netG.to(device)
+        for param in netG.parameters():
+            netG.requires_grad = True
+        netG.eval()
+        try:
+            if sadtalker_path['use_safetensor']:
+                checkpoints = safetensors.torch.load_file(sadtalker_path['checkpoint'])
+                netG.load_state_dict(load_x_from_safetensor(checkpoints, 'audio2exp'))
+            else:
+                load_cpk(sadtalker_path['audio2exp_checkpoint'], model=netG, device=device)
+        except:
+            raise Exception("Failed in loading audio2exp_checkpoint")
+    else:
+        cfg_exp = ''
+        netG = SimpleWrapperV2()
 
     # Load Data in batches
     batch = 'load batch'
@@ -73,35 +83,59 @@ def main(args):
     # keypoints = extract_3dmm.extract_keypoint(image)
 
     # ExpNet
-    audio2exp = Audio2Exp(netG, cfg_exp, device=device, prepare_training_loss=False)
-    audio2exp = audio2exp.to(device)
-    # for param in audio2exp.parameters():
-    #     param.requires_grad = False
-    # audio2exp.eval()
-    audio_batch = 'batch of audio'
-    # exp_pred = audio2exp.generate(audio_batch)
+    if True:
+        audio2exp = Audio2Exp(netG, cfg_exp, device=device, prepare_training_loss=False)
+        audio2exp = audio2exp.to(device)
+        # for param in audio2exp.parameters():
+        #     param.requires_grad = False
+        # audio2exp.eval()
+        audio_batch = 'batch of audio'
+        # exp_pred = audio2exp.generate(audio_batch)
 
     # PoseVAE
-    audio2pose = Audio2Pose(cfg_pose, None, device=device)
-    audio2pose = audio2pose.to(device)
-    audio2pose.eval()
-    for param in audio2pose.parameters():
-        param.requires_grad = False
-    # pose_pre = audio2pose.generate
+    if False:
+        audio2pose = Audio2Pose(cfg_pose, None, device=device)
+        audio2pose = audio2pose.to(device)
+        audio2pose.eval()
+        for param in audio2pose.parameters():
+            param.requires_grad = False
+        # pose_pre = audio2pose.generate
+
+
+
+    # Load data_loader
+    ## sample: [['features'], ['labels']]*(dataset_size) = [[(10, 1, 80, 16), (1, 10, 64), (1, 10, 1)], [(1, 10, 64)]]*(dataset_size)
+    # dataset = transforms.Compose(transform=Compose([ToTensor(), Normalize((0.5,), (0.5,))]))
+    dataset = []
+    dataset_len = 1
+    print('generating dataset...')
+    for _ in tqdm(range(dataset_len), 'Dataset Progress'):
+        audiox = torch.randn((10, 1, 80, 16), requires_grad=True)
+        ref = torch.randn((1, 10, 64), requires_grad=True)
+        ratio = torch.randn((1, 10, 1), requires_grad=True)
+        dataset.append([audiox, ref, ratio])
+    # train_size = int(0.8 * len(dataset))
+    # train_data, _ = random_split(dataset, [train_size, len(dataset) - train_size])
+    # train_loader = DataLoader(train_data, batch_size=1, shuffle=True)
+    train_loader = DataLoader(dataset, batch_size=1, shuffle=True)
+    print('dataset is generated and loaded successfully')
 
     # Start Training
     if args.train:
         cfg = ''
-        audiox = torch.randn((1, 10, 1, 80, 16), requires_grad=True)
-        ref = torch.randn((1, 1, 10, 64), requires_grad=True)
-        ratio = torch.randn((1, 1, 10, 1), requires_grad=True)
-        dataset = [[audiox], [ref], [ratio]]
+        # audiox = torch.randn((1, 10, 1, 80, 16), requires_grad=True)
+        # ref = torch.randn((1, 1, 10, 64), requires_grad=True)
+        # ratio = torch.randn((1, 1, 10, 1), requires_grad=True)
+        # dataset = [[audiox], [ref], [ratio]]
         expNet = Audio2Exp(netG, cfg_exp, device=device)
-        expNet.new_train(dataset)
+        expNet.new_train(train_loader)
 
 
+
+
+
+## Need to Configure
 if __name__ == '__main__':
-    
     parser = ArgumentParser()  
     parser.add_argument("--driven_audio", default='./examples/driven_audio/bus_chinese.wav', help="path to driven audio")
     parser.add_argument("--source_image", default='./examples/source_image/full_body_1.png', help="path to source image")

@@ -2,7 +2,12 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+sadtalker
+sadtalker/*
+lightning_logs
+lightning_logs/*
+pose
+pose/*
 # C extensions
 *.so
 

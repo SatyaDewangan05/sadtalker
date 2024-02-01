@@ -61,7 +61,7 @@ class Audio2Exp(nn.Module):
         print('ratio: ', ratio.shape)
         return [[audiox.unsqueeze(0)], [ref.unsqueeze(0)], [ratio.unsqueeze(0)]]
 
-    def new_train(self, batch, args=None, dataset=None):
+    def new_train(self, train_loader, args=None, dataset=None):
         print('Starting Training...')
         # args.max_epochs = 50
         # args.devices = 5
@@ -69,11 +69,11 @@ class Audio2Exp(nn.Module):
         # args.strategy = "ddp"
         # args.check_val_every_n_epoch = 10
 
-        max_epochs = 50
+        max_epochs = 10
         devices = 1
         accelerator = "gpu"
         # strategy = "ddp"
-        check_val_every_n_epoch = 10
+        check_val_every_n_epoch = 1
 
         lightning_model = LightningMyModel(self.netG)
 
@@ -96,10 +96,14 @@ class Audio2Exp(nn.Module):
         # train_loader = self.get_batch(batch)
         # train_loader = [batch]
         print('at train_loader')
-        train_loader = [batch]*128
-        print('audiox: ', train_loader[0][0][0].shape)
-        print('ref: ', train_loader[0][1][0].shape)
-        print('ratio: ', train_loader[0][2][0].shape)
+        # train_loader = [batch]*128
+        for batch in train_loader:
+            print(len(batch))
+            print('audiox: ', batch[0].shape)
+            print('ref: ', batch[1].shape)
+            print('ratio: ', batch[2].shape)
+            print('label: ', batch[1].shape)
+            break
 
         # default used by the Trainer
         # sampler = torch.utils.data.DistributedSampler(train_loader, shuffle=True)
@@ -108,26 +112,68 @@ class Audio2Exp(nn.Module):
         # train_loader = [train_loader]*64
         # print('train_loader size', train_loader[0].size())
 
-        # python inference.py --driven_audio input/input_audio.wav --source_image input/male1.jpeg
-        # python train.py --driven_audio input/input_audio.wav --source_image input/male1.jpeg
+        # python3 inference.py --driven_audio input/input_audio.wav --source_image input/male1.jpeg
+        # python3 train.py --driven_audio input/input_audio.wav --source_image input/male1.jpeg
 
         checkpoint_callback = ModelCheckpoint(
             monitor='val_loss',
-            dirpath='checkpoints/',
+            dirpath='/home/ubuntu/sadtalker/checkpoints/',
             filename='simplewrapperV2-{epoch:02d}-{val_loss:.2f}',
-            save_top_k=1,
-            mode='min'
+            every_n_epochs=1,
+            save_last=True
+            # save_top_k=1,
+            # mode='min'
         )
 
         # Instantiate the Lightning Trainer and train the model
-        trainer = Trainer(max_epochs=max_epochs,
-                devices=devices,
-                accelerator=accelerator,
-                enable_progress_bar=True,
-                check_val_every_n_epoch=check_val_every_n_epoch,
-                callbacks=[checkpoint_callback])
+        trainer = Trainer(
+            default_root_dir='/home/ubuntu/sadtalker',
+            max_epochs=max_epochs,
+            devices=devices,
+            accelerator=accelerator,
+            enable_progress_bar=True,
+            check_val_every_n_epoch=check_val_every_n_epoch,
+            # callbacks=[checkpoint_callback]
+        )
         
         trainer.fit(lightning_model, train_loader)
+
+    def new_test(self, batch):
+
+        self.model = LightningMyModel()
+
+        # Load pretrained weights
+        print('loading model...')
+        pretrained_checkpoint_path = "/home/ubuntu/sadtalker/lightning_logs/version_1/checkpoints/epoch=9-step=10.ckpt"
+        self.model.load_pretrained_checkpoint(pretrained_checkpoint_path)
+        print('model loaded!!!')
+
+        mel_input = batch['indiv_mels']                         # bs T 1 80 16
+        bs = mel_input.shape[0]
+        T = mel_input.shape[1]
+
+        exp_coeff_pred = []
+
+        for i in tqdm(range(0, T, 10),'audio2exp:'): # every 10 frames
+            
+            current_mel_input = mel_input[:,i:i+10]
+
+            #ref = batch['ref'][:, :, :64].repeat((1,current_mel_input.shape[1],1))           #bs T 64
+            ref = batch['ref'][:, :, :64][:, i:i+10]
+            ratio = batch['ratio_gt'][:, i:i+10]                               #bs T
+
+            audiox = current_mel_input.view(-1, 1, 80, 16)                  # bs*T 1 80 16
+
+            curr_exp_coeff_pred  = self.netG(audiox, ref, ratio)         # bs T 64 
+
+            exp_coeff_pred += [curr_exp_coeff_pred]
+
+        # BS x T x 64
+        results_dict = {
+            'exp_coeff_pred': torch.cat(exp_coeff_pred, axis=1)
+            }
+        return results_dict
+    
 
     def test(self, batch):
 

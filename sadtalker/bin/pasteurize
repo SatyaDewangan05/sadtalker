@@ -1,4 +1,4 @@
-#!/home/ubuntu/SadTalker/sadtalker/bin/python3
+#!/home/ubuntu/sadtalker/sadtalker/bin/python3
 # EASY-INSTALL-ENTRY-SCRIPT: 'future==0.18.3','console_scripts','pasteurize'
 __requires__ = 'future==0.18.3'
 import re

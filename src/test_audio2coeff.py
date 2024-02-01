@@ -75,9 +75,10 @@ class Audio2Coeff():
 
         with torch.no_grad():
             #train
-            self.audio2exp_model.new_train(batch)
+            # self.audio2exp_model.new_train(batch)
             #test
-            results_dict_exp= self.audio2exp_model.test(batch)
+            results_dict_exp= self.audio2exp_model.new_test(batch)
+            # results_dict_exp= self.audio2exp_model.test(batch)
             exp_pred = results_dict_exp['exp_coeff_pred']                         #bs T 64
 
             #for class_id in  range(1):

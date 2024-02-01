@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from pytorch_lightning import LightningModule
+from src.utils.loss_fn import l_distil, l_lks, l_read
 from tqdm import tqdm
 
 class Conv2d(nn.Module):
@@ -85,32 +86,62 @@ class LightningMyModel(LightningModule):
         self.model = SimpleWrapperV2() if model is None else model
         self.criterion = nn.CrossEntropyLoss()
 
-    # def forward(self, audiox, ref, ratio):
+    def forward(self, audiox, ref, ratio):
         # print('audiox : ', audiox.shape)
         # print('ref: ', ref.shape)
         # print('ratio: ', ratio.shape)
-    #     # audiox, ref, ratio = x
-    #     return self.model(audiox, ref, ratio)
+        # audiox, ref, ratio = x
+        return self.model(audiox, ref, ratio)
 
     def training_step(self, data_batch, batch_idx=None):
         # labels = 'input/male1.mp4'
-        labels = torch.randn((1, 10, 64), requires_grad=True).to('cuda:0')
+        # labels = torch.randn((1, 10, 64), requires_grad=True).to('cuda:0')
         # print(f'data_batch len: [{len(data_batch)}, {len(data_batch[0])}]')
         # print(data_batch)
-        for batch in data_batch:
-            audiox = batch[0][0]
-            ref = batch[1][0]
-            ratio = batch[2][0]
-            # print('audiox : ', audiox.shape)
-            # print('ref: ', ref.shape)
-            # print('ratio: ', ratio.shape)
-            outputs = self.model(audiox, ref, ratio)
-            # print('outputs shape: ', outputs.shape)
-            loss = self.criterion(outputs, labels)
-            # print('loss: ', loss)
+
+        # Individual Features
+        audiox = data_batch[0][0]   # processed audio
+        ref = data_batch[1][0]      # 3dmm face landmark
+        ratio = data_batch[2][0]    # z_blink
+        label = data_batch[1][0]    # Label
+
+        # Hyper-parameter
+        lambda_distill = 2
+        lambda_eye = 200
+        lambda_lks = 0.01
+        lambda_read = 0.01
+
+        if False:
+            for batch in data_batch:
+                audiox = batch[0][0]
+                ref = batch[1][0]
+                ratio = batch[2][0]
+                # print('audiox : ', audiox.shape)
+                # print('ref: ', ref.shape)
+                # print('ratio: ', ratio.shape)
+                outputs = self.model(audiox, ref, ratio)
+                # print('outputs shape: ', outputs.shape)
+                loss = self.criterion(outputs, labels)
+                # print('loss: ', loss)
+
+        output = self.model(audiox, ref, ratio)
+        print('output shape: ', output.shape)
+
+        loss_distil = l_distil(output[0], label[0])
+        loss_lks = l_lks(ref[0], output[0], ratio[0], lambda_eye=lambda_eye)
+        loss_read = l_read(output[0], label[0])
+        loss = lambda_distill*loss_distil + lambda_lks*loss_lks + lambda_read*loss_read
+        print('loss: ', loss)
 
         return loss
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
         return optimizer
+
+    def load_pretrained_checkpoint(self, checkpoint_path):
+        checkpoint = torch.load(checkpoint_path)
+        print("Keys in the checkpoint file:", checkpoint.keys())
+        state_dict = checkpoint['state_dict']
+        state_dict = {k.replace('model.', ''): v for k, v in state_dict.items()}
+        self.model.load_state_dict(state_dict)
