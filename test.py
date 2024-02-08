@@ -36,6 +36,7 @@ def load_pretrained_checkpoint(self, checkpoint_path):
     # self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
 
 
+##python3 inference.py --driven_audio 'input/msdhoni1_trimmed.mp3' --source_image 'input/dhoni1.png' --result_dir 'result' --still --preprocess full --enhancer gfpgan 
 
 # netG = SimpleWrapperV2()
 # lightning_model = LightningMyModel(netG)

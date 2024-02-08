@@ -26,6 +26,12 @@ from src.audio2pose_models.audio2pose import Audio2Pose
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, random_split
 from torchvision.transforms import Compose, ToTensor, Normalize
+from moviepy.editor import VideoFileClip
+# data proprocess
+from PIL import Image
+import cv2
+from src.utils.preprocess import CropAndExtract
+from src.generate_batch import get_data
 
 device = 'cuda'
 train = False
@@ -37,6 +43,56 @@ def load_cpk(checkpoint_path, model=None, optimizer=None, device="cpu"):
     if optimizer is not None:
         optimizer.load_state_dict(checkpoint['optimizer'])
     return checkpoint['epoch']
+
+def create_batch(args):
+        # Preprocess the input data
+        input_video = args.video_path
+
+        # Extractingg Audio from input video
+        if not os.path.exists(args.audio_path):
+            video_clip = VideoFileClip(input_video)
+            extracted_audio = video_clip.audio
+            extracted_audio.write_audiofile('input/male1.mp3')
+            args.audio_path = 'input/male1.mp3'
+
+        if not os.path.exists(args.first_frame_path):
+            first_frame = []
+            video_stream = cv2.VideoCapture(input_video)
+            while 1:
+                still_reading, frame = video_stream.read()
+                if not still_reading:
+                    video_stream.release()
+                    break 
+                first_frame = frame
+                if len(first_frame)>=1:
+                    video_stream.release()
+                    break
+            cv2.imwrite('input/first_frame.png', first_frame)
+            args.first_frame_path = 'input/first_frame.png'
+            
+
+        sadtalker_paths = init_path('checkpoints', os.path.join(os.getcwd(), 'src/config'), 512, False, 'crop')
+        preprocess_model = CropAndExtract(sadtalker_paths, args.device)
+        first_coeff_path, _, _ =  preprocess_model.generate(args.first_frame_path, 'results', 'crop', source_image_flag=True, pic_size=512)
+        batch = get_data(first_coeff_path, args.audio_path, args.device, ref_eyeblink_coeff_path=None)
+
+        dataset = []
+        
+        mel_input = batch['indiv_mels']                         # bs T 1 80 16
+        bs = mel_input.shape[0]
+        T = mel_input.shape[1]
+        exp_coeff_pred = []
+        for i in tqdm(range(0, T, 10),'audio2exp:'): # every 10 frames
+            current_mel_input = mel_input[:,i:i+10]
+            #ref = batch['ref'][:, :, :64].repeat((1,current_mel_input.shape[1],1))           #bs T 64
+            ref = batch['ref'][:, :, :64][:, i:i+10]
+            ratio = batch['ratio_gt'][:, i:i+10]                               #bs T
+            audiox = current_mel_input.view(-1, 1, 80, 16)                  # bs*T 1 80 16
+            if len(audiox) != 10:
+                continue
+            dataset.append([audiox, ref, ratio])
+            
+        return dataset
 
 def main(args):
     # SadTalker_paths
@@ -102,22 +158,26 @@ def main(args):
         # pose_pre = audio2pose.generate
 
 
-
     # Load data_loader
-    ## sample: [['features'], ['labels']]*(dataset_size) = [[(10, 1, 80, 16), (1, 10, 64), (1, 10, 1)], [(1, 10, 64)]]*(dataset_size)
-    # dataset = transforms.Compose(transform=Compose([ToTensor(), Normalize((0.5,), (0.5,))]))
-    dataset = []
-    dataset_len = 1
-    print('generating dataset...')
-    for _ in tqdm(range(dataset_len), 'Dataset Progress'):
-        audiox = torch.randn((10, 1, 80, 16), requires_grad=True)
-        ref = torch.randn((1, 10, 64), requires_grad=True)
-        ratio = torch.randn((1, 10, 1), requires_grad=True)
-        dataset.append([audiox, ref, ratio])
-    # train_size = int(0.8 * len(dataset))
-    # train_data, _ = random_split(dataset, [train_size, len(dataset) - train_size])
-    # train_loader = DataLoader(train_data, batch_size=1, shuffle=True)
-    train_loader = DataLoader(dataset, batch_size=1, shuffle=True)
+    if args.random_dataset:
+        print("Training with the Random Dataset...")
+        ## sample: [['features'], ['labels']]*(dataset_size) = [[(10, 1, 80, 16), (1, 10, 64), (1, 10, 1)], [(1, 10, 64)]]*(dataset_size)
+        ## dataset = transforms.Compose(transform=Compose([ToTensor(), Normalize((0.5,), (0.5,))]))
+        dataset = []
+        dataset_len = 1
+        print('generating dataset...')
+        for _ in tqdm(range(dataset_len), 'Dataset Progress'):
+            audiox = torch.randn((10, 1, 80, 16), requires_grad=True)
+            ref = torch.randn((1, 10, 64), requires_grad=True)
+            ratio = torch.randn((1, 10, 1), requires_grad=True)
+            dataset.append([audiox, ref, ratio])
+        # train_size = int(0.8 * len(dataset))
+        # train_data, _ = random_split(dataset, [train_size, len(dataset) - train_size])
+        # train_loader = DataLoader(train_data, batch_size=1, shuffle=True)
+    else:
+        print("Training with the Actual Dataset...")
+        dataset = create_batch(args)*32
+    train_loader = DataLoader(dataset, batch_size=8, shuffle=True)
     print('dataset is generated and loaded successfully')
 
     # Start Training
@@ -137,47 +197,21 @@ def main(args):
 ## Need to Configure
 if __name__ == '__main__':
     parser = ArgumentParser()  
-    parser.add_argument("--driven_audio", default='./examples/driven_audio/bus_chinese.wav', help="path to driven audio")
-    parser.add_argument("--source_image", default='./examples/source_image/full_body_1.png', help="path to source image")
-    parser.add_argument("--ref_eyeblink", default=None, help="path to reference video providing eye blinking")
-    parser.add_argument("--ref_pose", default=None, help="path to reference video providing pose")
-    parser.add_argument("--checkpoint_dir", default='./checkpoints', help="path to output")
-    parser.add_argument("--result_dir", default='./results', help="path to output")
-    parser.add_argument("--pose_style", type=int, default=0,  help="input pose style from [0, 46)")
-    parser.add_argument("--batch_size", type=int, default=2,  help="the batch size of facerender")
-    parser.add_argument("--size", type=int, default=256,  help="the image size of the facerender")
-    parser.add_argument("--expression_scale", type=float, default=1.,  help="the batch size of facerender")
-    parser.add_argument('--input_yaw', nargs='+', type=int, default=None, help="the input yaw degree of the user ")
-    parser.add_argument('--input_pitch', nargs='+', type=int, default=None, help="the input pitch degree of the user")
-    parser.add_argument('--input_roll', nargs='+', type=int, default=None, help="the input roll degree of the user")
-    parser.add_argument('--enhancer',  type=str, default=None, help="Face enhancer, [gfpgan, RestoreFormer]")
-    parser.add_argument('--background_enhancer',  type=str, default=None, help="background enhancer, [realesrgan]")
-    parser.add_argument("--cpu", dest="cpu", action="store_true") 
-    parser.add_argument("--face3dvis", action="store_true", help="generate 3d face and 3d landmarks") 
-    parser.add_argument("--still", action="store_true", help="can crop back to the original videos for the full body aniamtion") 
-    parser.add_argument("--preprocess", default='crop', choices=['crop', 'extcrop', 'resize', 'full', 'extfull'], help="how to preprocess the images" ) 
-    parser.add_argument("--verbose",action="store_true", help="saving the intermedia output or not" ) 
-    parser.add_argument("--old_version",action="store_true", help="use the pth other than safetensor version" ) 
-    parser.add_argument("--train", type=bool, default=True, help="start training" ) 
 
-
-    # net structure and parameters
-    parser.add_argument('--net_recon', type=str, default='resnet50', choices=['resnet18', 'resnet34', 'resnet50'], help='useless')
-    parser.add_argument('--init_path', type=str, default=None, help='Useless')
-    parser.add_argument('--use_last_fc',default=False, help='zero initialize the last fc')
-    parser.add_argument('--bfm_folder', type=str, default='./checkpoints/BFM_Fitting/')
-    parser.add_argument('--bfm_model', type=str, default='BFM_model_front.mat', help='bfm model')
-
-    # default renderer parameters
-    parser.add_argument('--focal', type=float, default=1015.)
-    parser.add_argument('--center', type=float, default=112.)
-    parser.add_argument('--camera_d', type=float, default=10.)
-    parser.add_argument('--z_near', type=float, default=5.)
-    parser.add_argument('--z_far', type=float, default=15.)
+    parser.add_argument("--train", type=bool, default=True, help="start training") 
+    parser.add_argument("--first_frame_path", type=str, default='input/first_frame.mp4', help="training video's first frame path") 
+    parser.add_argument("--video_path", type=str, default='input/male1.mp4', help="training video path") 
+    parser.add_argument("--audio_path", type=str, default='input/male1.mp3', help="training audio path") 
+    parser.add_argument("--epoch", type=int, default=10, help="number of epoch") 
+    parser.add_argument("--batch_size", type=int, default=1, help="batch size") 
+    parser.add_argument("--random_dataset", type=bool, default=False, help="train with random tensors") 
 
     args = parser.parse_args()
+    print('args: ', args)
 
-    if torch.cuda.is_available() and not args.cpu:
+    # python3 train.py --random_dataset False
+
+    if torch.cuda.is_available():
         args.device = "cuda"
     else:
         args.device = "cpu"

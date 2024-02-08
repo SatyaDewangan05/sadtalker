@@ -104,6 +104,9 @@ class LightningMyModel(LightningModule):
         ref = data_batch[1][0]      # 3dmm face landmark
         ratio = data_batch[2][0]    # z_blink
         label = data_batch[1][0]    # Label
+        # print('audiox : ', audiox.shape)
+        # print('ref: ', ref.shape)
+        # print('ratio: ', ratio.shape)
 
         # Hyper-parameter
         lambda_distill = 2
@@ -125,13 +128,15 @@ class LightningMyModel(LightningModule):
                 # print('loss: ', loss)
 
         output = self.model(audiox, ref, ratio)
-        print('output shape: ', output.shape)
+        # print('output shape: ', output.shape)
 
         loss_distil = l_distil(output[0], label[0])
         loss_lks = l_lks(ref[0], output[0], ratio[0], lambda_eye=lambda_eye)
         loss_read = l_read(output[0], label[0])
         loss = lambda_distill*loss_distil + lambda_lks*loss_lks + lambda_read*loss_read
-        print('loss: ', loss)
+        # print('loss: ', loss)
+        # Log training metrics
+        self.log("loss", loss, prog_bar=True)
 
         return loss
 
