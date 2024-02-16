@@ -8,6 +8,13 @@ lightning_logs
 lightning_logs/*
 pose
 pose/*
+checkpoints/*
+dataset/*
+dataset
+result/*
+result
+results/*
+results
 # C extensions
 *.so
 

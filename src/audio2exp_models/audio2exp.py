@@ -102,7 +102,7 @@ class Audio2Exp(nn.Module):
             print('audiox: ', batch[0].shape)
             print('ref: ', batch[1].shape)
             print('ratio: ', batch[2].shape)
-            print('label: ', batch[1].shape)
+            print('label: ', batch[3].shape)
             break
 
         # default used by the Trainer

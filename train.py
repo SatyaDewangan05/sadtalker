@@ -44,18 +44,18 @@ def load_cpk(checkpoint_path, model=None, optimizer=None, device="cpu"):
         optimizer.load_state_dict(checkpoint['optimizer'])
     return checkpoint['epoch']
 
-def create_batch(args):
+def create_batch(video_path):
         # Preprocess the input data
-        input_video = args.video_path
+        # input_video = args.video_path
 
         # Extractingg Audio from input video
-        if not os.path.exists(args.audio_path):
+        if False and not os.path.exists(args.audio_path):
             video_clip = VideoFileClip(input_video)
             extracted_audio = video_clip.audio
             extracted_audio.write_audiofile('input/male1.mp3')
             args.audio_path = 'input/male1.mp3'
 
-        if not os.path.exists(args.first_frame_path):
+        if False and not os.path.exists(args.first_frame_path):
             first_frame = []
             video_stream = cv2.VideoCapture(input_video)
             while 1:
@@ -73,10 +73,16 @@ def create_batch(args):
 
         sadtalker_paths = init_path('checkpoints', os.path.join(os.getcwd(), 'src/config'), 512, False, 'crop')
         preprocess_model = CropAndExtract(sadtalker_paths, args.device)
-        first_coeff_path, _, _ =  preprocess_model.generate(args.first_frame_path, 'results', 'crop', source_image_flag=True, pic_size=512)
-        batch = get_data(first_coeff_path, args.audio_path, args.device, ref_eyeblink_coeff_path=None)
+        first_coeff_path, _, _ =  preprocess_model.generate(video_path, 'results', 'crop', source_image_flag=True, pic_size=512)
+        print('first_coeff_path: ', first_coeff_path)
+        all_coeff_path, _, _ =  preprocess_model.generate(video_path, 'results', 'crop', source_image_flag=False, pic_size=512)
+        print('all_coeff_path: ', all_coeff_path)
+        batch = get_data(first_coeff_path, video_path, args.device, ref_eyeblink_coeff_path=None)
+        label_batch = get_data(all_coeff_path, video_path, args.device, ref_eyeblink_coeff_path=None)
+        print('batch shape: ', batch['ref'].shape)
+        print('label_batch shape: ', label_batch['ref'].shape)
 
-        dataset = []
+        tensor = []
         
         mel_input = batch['indiv_mels']                         # bs T 1 80 16
         bs = mel_input.shape[0]
@@ -86,19 +92,20 @@ def create_batch(args):
             current_mel_input = mel_input[:,i:i+10]
             #ref = batch['ref'][:, :, :64].repeat((1,current_mel_input.shape[1],1))           #bs T 64
             ref = batch['ref'][:, :, :64][:, i:i+10]
+            label_ref = label_batch['ref'][:, :, :64][:, i:i+10]
             ratio = batch['ratio_gt'][:, i:i+10]                               #bs T
             audiox = current_mel_input.view(-1, 1, 80, 16)                  # bs*T 1 80 16
             if len(audiox) != 10:
                 continue
-            dataset.append([audiox, ref, ratio])
+            tensor.append([audiox, ref, ratio, label_ref])
             
-        return dataset
+        return tensor
 
 def main(args):
     # SadTalker_paths
     checkpoint_dir = './checkpoints'
     current_root_path = os.getcwd()
-    size = 512
+    size = 256
     old_version = False
     preprocess = 'crop'
     sadtalker_path = init_path(checkpoint_dir, os.path.join(current_root_path, 'src/config'), size, old_version, preprocess)
@@ -176,8 +183,16 @@ def main(args):
         # train_loader = DataLoader(train_data, batch_size=1, shuffle=True)
     else:
         print("Training with the Actual Dataset...")
-        dataset = create_batch(args)*32
-    train_loader = DataLoader(dataset, batch_size=8, shuffle=True)
+        dataset = []
+        for idx, item in tqdm(enumerate(os.listdir(args.train_data)), "Loading Dataset: "):
+            item_path = os.path.join(args.train_data, item)
+            # print("item path:", item_path)
+            dataset.append(create_batch(item_path))
+            if idx >=8:
+                break
+        dataset = dataset*32
+        # dataset = create_batch(args.video_path)*32
+    train_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     print('dataset is generated and loaded successfully')
 
     # Start Training
@@ -191,19 +206,17 @@ def main(args):
         expNet.new_train(train_loader)
 
 
-
-
-
 ## Need to Configure
 if __name__ == '__main__':
     parser = ArgumentParser()  
 
     parser.add_argument("--train", type=bool, default=True, help="start training") 
     parser.add_argument("--first_frame_path", type=str, default='input/first_frame.mp4', help="training video's first frame path") 
+    parser.add_argument("--train_data", type=str, default='dataset/vox/train', help="training dataset video path") 
     parser.add_argument("--video_path", type=str, default='input/male1.mp4', help="training video path") 
     parser.add_argument("--audio_path", type=str, default='input/male1.mp3', help="training audio path") 
     parser.add_argument("--epoch", type=int, default=10, help="number of epoch") 
-    parser.add_argument("--batch_size", type=int, default=1, help="batch size") 
+    parser.add_argument("--batch_size", type=int, default=8, help="batch size") 
     parser.add_argument("--random_dataset", type=bool, default=False, help="train with random tensors") 
 
     args = parser.parse_args()

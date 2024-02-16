@@ -103,7 +103,7 @@ class LightningMyModel(LightningModule):
         audiox = data_batch[0][0]   # processed audio
         ref = data_batch[1][0]      # 3dmm face landmark
         ratio = data_batch[2][0]    # z_blink
-        label = data_batch[1][0]    # Label
+        label = data_batch[3][0]    # Label
         # print('audiox : ', audiox.shape)
         # print('ref: ', ref.shape)
         # print('ratio: ', ratio.shape)

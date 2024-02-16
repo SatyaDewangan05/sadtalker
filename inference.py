@@ -72,6 +72,7 @@ def main(args):
 
     #audio2ceoff
     batch = get_data(first_coeff_path, audio_path, device, ref_eyeblink_coeff_path, still=args.still)
+    print('\nbatch shape: ', batch['ref'].shape)
     coeff_path = audio_to_coeff.generate(batch, save_dir, pose_style, ref_pose_coeff_path)
  
     # 3dface render

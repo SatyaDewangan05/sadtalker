@@ -61,10 +61,15 @@ class CropAndExtract():
         self.device = device
     
     def generate(self, input_path, save_dir, crop_or_resize='crop', source_image_flag=False, pic_size=256):
+        
+        if os.path.exists('nothing.txt'):
+            os.remove('nothing.txt')
 
         pic_name = os.path.splitext(os.path.split(input_path)[-1])[0]  
 
         landmarks_path =  os.path.join(save_dir, pic_name+'_landmarks.txt') 
+        if not source_image_flag:
+            landmarks_path = 'nothing.txt'
         coeff_path =  os.path.join(save_dir, pic_name+'.mat')  
         png_path =  os.path.join(save_dir, pic_name+'.png')  
 
@@ -121,11 +126,17 @@ class CropAndExtract():
 
         # 2. get the landmark according to the detected face. 
         if not os.path.isfile(landmarks_path): 
+            print('no landmark')
             lm = self.propress.predictor.extract_keypoint(frames_pil, landmarks_path)
+            print('lm: ', lm.shape)
         else:
             print(' Using saved landmarks.')
             lm = np.loadtxt(landmarks_path).astype(np.float32)
+            print('lm: ', lm.shape)
+            print('len(x_full_frames): ', len(x_full_frames))
+            print('x_full_frames shape: ', np.array(x_full_frames).shape)
             lm = lm.reshape([len(x_full_frames), -1, 2])
+            print('new lm: ', lm.shape)
 
         if not os.path.isfile(coeff_path):
             # load 3dmm paramter generator from Deep3DFaceRecon_pytorch 
@@ -163,8 +174,12 @@ class CropAndExtract():
                 video_coeffs.append(pred_coeff)
                 full_coeffs.append(full_coeff.cpu().numpy())
 
-            semantic_npy = np.array(video_coeffs)[:,0] 
+            semantic_npy = np.array(video_coeffs)[:,0]
+            print('sementic_npy shape: ', semantic_npy.shape)
 
             savemat(coeff_path, {'coeff_3dmm': semantic_npy, 'full_3dmm': np.array(full_coeffs)[0]})
+
+            if os.path.exists('nothing.txt'):
+                os.remove('nothing.txt')
 
         return coeff_path, png_path, crop_info

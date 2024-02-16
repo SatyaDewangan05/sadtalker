@@ -6,6 +6,7 @@ import numpy as np
 import random
 import scipy.io as scio
 import src.utils.audio as audio
+from moviepy.editor import VideoFileClip
 
 def crop_pad_audio(wav, audio_length):
     if len(wav) > audio_length:
@@ -61,7 +62,13 @@ def get_data(first_coeff_path, audio_path, device, ref_eyeblink_coeff_path, stil
         num_frames = int(length_of_audio * 25)
         indiv_mels = np.zeros((num_frames, 80, 16))
     else:
-        wav = audio.load_wav(audio_path, 16000) 
+        if audio_path.split('.')[-1] == 'mp4':
+            video_clip = VideoFileClip(audio_path)
+            wav = video_clip.audio  
+            # Write the audio to a WAV file
+            wav.write_audiofile(audio_name+'.wav')
+        else:
+            wav = audio.load_wav(audio_path, 16000) 
         wav_length, num_frames = parse_audio_length(len(wav), 16000, 25)
         wav = crop_pad_audio(wav, wav_length)
         orig_mel = audio.melspectrogram(wav).T
